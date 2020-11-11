@@ -4,18 +4,23 @@ import cv2
 import os
 import glob
 import argparse
-from networks import *
-from skyboxengine import *
+from networks import define_G
+from skyboxengine import SkyBox
 import utils
 import torch
 
 # Decide which device we want to run on
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
 parser = argparse.ArgumentParser(description='SKYAR')
-parser.add_argument('--path', type=str, default='./config/config-canyon-jupiter.json', metavar='str',
-                    help='configurations')
+parser.add_argument(
+    '--path',
+    type=str,
+    default='./config/config-canyon-jupiter.json',
+    metavar='str',
+    help='configurations'
+)
+
 
 class SkyFilter():
 
@@ -33,16 +38,18 @@ class SkyFilter():
         self.net_G = define_G(input_nc=3, output_nc=1, ngf=64, netG=args.net_G).to(device)
         self.load_model()
 
-        self.video_writer = cv2.VideoWriter('demo.mp4', cv2.VideoWriter_fourcc(*'MP4V'),
-                                            20.0, (args.out_size_w, args.out_size_h))
-        self.video_writer_cat = cv2.VideoWriter('demo-cat.mp4', cv2.VideoWriter_fourcc(*'MP4V'),
-                                            20.0, (2*args.out_size_w, args.out_size_h))
+        self.video_writer = cv2.VideoWriter(
+            'demo.mp4', cv2.VideoWriter_fourcc(*'MP4V'), 20.0, (args.out_size_w, args.out_size_h)
+        )
+        self.video_writer_cat = cv2.VideoWriter(
+            'demo-cat.mp4', cv2.VideoWriter_fourcc(*'MP4V'), 20.0,
+            (2 * args.out_size_w, args.out_size_h)
+        )
 
         if os.path.exists(args.output_dir) is False:
             os.mkdir(args.output_dir)
 
         self.save_jpgs = args.save_jpgs
-
 
     def load_model(self):
 
@@ -52,8 +59,6 @@ class SkyFilter():
         self.net_G.load_state_dict(checkpoint['model_G_state_dict'])
         self.net_G.to(device)
         self.net_G.eval()
-
-
 
     def write_video(self, img_HD, syneth):
 
@@ -67,32 +72,36 @@ class SkyFilter():
         cv2.imshow('frame_cat', frame_cat)
         cv2.waitKey(1)
 
-
-
     def synthesize(self, img_HD, img_HD_prev):
 
+        # img_HD = [h, w, 3]
         h, w, c = img_HD.shape
 
         img = cv2.resize(img_HD, (self.in_size_w, self.in_size_h))
 
         img = np.array(img, dtype=np.float32)
+        # img = [1, 3, h, w]
         img = torch.tensor(img).permute([2, 0, 1]).unsqueeze(0)
 
         with torch.no_grad():
+            # G_pred = [b, 1, h/2, w/2]
             G_pred = self.net_G(img.to(device))
-            G_pred = torch.nn.functional.interpolate(G_pred, (h, w), mode='bicubic', align_corners=False)
+            G_pred = torch.nn.functional.interpolate(
+                G_pred, (h, w), mode='bicubic', align_corners=False
+            )
             G_pred = G_pred[0, :].permute([1, 2, 0])
+            # G_pred = [h, w, 3]
             G_pred = torch.cat([G_pred, G_pred, G_pred], dim=-1)
             G_pred = np.array(G_pred.detach().cpu())
             G_pred = np.clip(G_pred, a_max=1.0, a_min=0.0)
 
+        # skymask = [h, w, 3]
+        # if pixel is in sky, then its skymask is 1
         skymask = self.skyboxengine.skymask_refinement(G_pred, img_HD)
 
         syneth = self.skyboxengine.skyblend(img_HD, img_HD_prev, skymask)
 
         return syneth, G_pred, skymask
-
-
 
     def cvtcolor_and_resize(self, img_HD):
 
@@ -101,8 +110,6 @@ class SkyFilter():
         img_HD = cv2.resize(img_HD, (self.out_size_w, self.out_size_h))
 
         return img_HD
-
-
 
     def run_imgseq(self):
 
@@ -119,7 +126,7 @@ class SkyFilter():
             if img_HD_prev is None:
                 img_HD_prev = img_HD
 
-            syneth, G_pred, skymask  = self.synthesize(img_HD, img_HD_prev)
+            syneth, G_pred, skymask = self.synthesize(img_HD, img_HD_prev)
 
             if self.save_jpgs:
                 fpath = os.path.join(args.output_dir, img_names[idx])
@@ -132,9 +139,6 @@ class SkyFilter():
             print('processing: %d / %d ...' % (idx, len(img_names)))
 
             img_HD_prev = img_HD
-
-
-
 
     def run_video(self):
 
@@ -157,7 +161,7 @@ class SkyFilter():
                 syneth, G_pred, skymask = self.synthesize(img_HD, img_HD_prev)
 
                 if self.save_jpgs:
-                    fpath = os.path.join(args.output_dir, str(idx)+'.jpg')
+                    fpath = os.path.join(args.output_dir, str(idx) + '.jpg')
                     plt.imsave(fpath[:-4] + '_input.jpg', img_HD)
                     plt.imsave(fpath[:-4] + '_coarse_skymask.jpg', G_pred)
                     plt.imsave(fpath[:-4] + '_refined_skymask.jpg', skymask)
@@ -171,7 +175,6 @@ class SkyFilter():
 
             else:  # if reach the last frame
                 break
-
 
     def run(self):
         if self.input_mode == 'seq':
@@ -189,5 +192,3 @@ if __name__ == '__main__':
     args = utils.parse_config(config_path)
     sf = SkyFilter(args)
     sf.run()
-
-

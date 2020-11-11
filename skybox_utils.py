@@ -24,14 +24,16 @@ def build_transformation_matrix(transform):
 def update_transformation_matrix(M, m):
 
     # extend M and m to 3x3 by adding an [0,0,1] to their 3rd row
-    M_ = np.concatenate([M, np.zeros([1,3])], axis=0)
+    M_ = np.concatenate([M, np.zeros([1, 3])], axis=0)
     M_[-1, -1] = 1
-    m_ = np.concatenate([m, np.zeros([1,3])], axis=0)
+    m_ = np.concatenate([m, np.zeros([1, 3])], axis=0)
     m_[-1, -1] = 1
 
     M_new = np.matmul(m_, M_)
-    return M_new[0:2, :]
 
+    # now_mat = m_, pre_mat = M_
+    # new point corrdinates = m_ * M_ * origin corrdinates
+    return M_new[0:2, :]
 
 
 def estimate_partial_transform(matched_keypoints):
@@ -45,8 +47,10 @@ def estimate_partial_transform(matched_keypoints):
     # transform = cv2.estimateRigidTransform(np.array(prev_matched_kp),
     #                                        np.array(cur_matched_kp),
     #                                        False)
-    transform = cv2.estimateAffinePartial2D(np.array(prev_matched_kp),
-                                           np.array(cur_matched_kp))[0]
+
+    # cv2.estimateAffinePartial2D uses Random sample consensus (RANSAC)
+    # How to calcalate: https://github.com/opencv/opencv/blob/e12adcdf08370a404e1baae6464fdaf1eac8460a/modules/calib3d/src/ptsetreg.cpp#L715
+    transform = cv2.estimateAffinePartial2D(np.array(prev_matched_kp), np.array(cur_matched_kp))[0]
 
     if transform is not None:
         # translation x
@@ -73,12 +77,14 @@ def check_dy_dx_da(dy, dx, da, d_max=20.0, d_min=-20.0):
     return dy, dx, da
 
 
-
+# prev_pts = [corners, 1, 2]
+# curr_pts = [corners, 1, 2]
 def removeOutliers(prev_pts, curr_pts):
 
     d = np.sum((prev_pts - curr_pts)**2, axis=-1)**0.5
 
     d_ = np.array(d).reshape(-1, 1)
+    # https://scikit-learn.org/stable/modules/density.html
     kde = KernelDensity(kernel='gaussian', bandwidth=0.5).fit(d_)
     density = np.exp(kde.score_samples(d_))
 
@@ -86,4 +92,3 @@ def removeOutliers(prev_pts, curr_pts):
     curr_pts = curr_pts[np.where((density >= 0.1))]
 
     return prev_pts, curr_pts
-
